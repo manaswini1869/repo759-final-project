@@ -1,26 +1,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void get_args(m_p, n_p, r_p, num_threads_per_block, argv) {
+void get_args(int* m_p, int* n_p, int* r_p, int* num_threads_per_block_p, char* argv[]) {
     *m_p = strtol(argv[1], NULL, 10);
     *n_p = strtol(argv[2], NULL, 10);
     *r_p = strtol(argv[3], NULL, 10);
-    *num_threads_per_block = strtol(argv[4], NULL, 10);
+    *num_threads_per_block_p = strtol(argv[4], NULL, 10);
 
-    if (m <= 0 || n <= 0 || r <= 0 || num_threads_per_block <= 0) {
+    if (*m_p <= 0 || *n_p <= 0 || *r_p <= 0 || *num_threads_per_block_p <= 0) {
         fprintf(stderr, "Error: m, n, r, and num_threads_per_block must be positive integers.\n");
-        return EXIT_FAILURE;
+        exit(EXIT_FAILURE);
     }
 }
 
 void memory_allocate(float** U, float** S, float** V, float** A, int m, int n, int r) {
-    cudaMallocManaged((void**) &U, m * r * sizeof(float));
-    cudaMallocManaged((void**) &S, r * sizeof(float));
-    cudaMallocManaged((void**) &V, n * r * sizeof(float));
-    cudaMallocManaged((void**) &A, m * n * sizeof(float));
+    cudaMallocManaged((void**) U, m * r * sizeof(float));
+    cudaMallocManaged((void**) S, r * sizeof(float));
+    cudaMallocManaged((void**) V, n * r * sizeof(float));
+    cudaMallocManaged((void**) A, m * n * sizeof(float));
     if (U == NULL || S == NULL || V == NULL) {
         fprintf(stderr, "Error: Memory allocation failed.\n");
-        return EXIT_FAILURE;
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -42,34 +42,6 @@ void print_matrix(float* matrix, int rows, int cols) {
     }
 }
 
-void print_vector(float* vector, int size) {
-    for (int i = 0; i < size; i++) {
-        printf("%f ", vector[i]);
-    }
-    printf("\n");
-}
-
-__global__ void svd_kernel(float* U, float* S, float* V, float* A, int m, int n, int r) {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (row < m && col < n) {
-        float val = 0.0f;
-        for (int r = 0; r < R; ++r) {
-            float u = U[row * R + r];
-            float v = V[col * R + r];
-            val += S[r] * u * v;
-        }
-        A[row * n + col] = val;
-    }
-}
-
-void svd(float *U, float* S, float* V, float* A, int m, int n, int r, int num_threads_per_block) {
-    dim3 threads_per_block(num_threads_per_block, num_threads_per_block);
-    dim3 num_blocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x, (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
-    svd_kernel<<<num_bocks, threads_per_block>>>(U, S, V, A, m, n, r);
-}
-
 void free_memory(float* U, float* S, float* V, float* A) {
     cudaFree(U);
     cudaFree(S);
@@ -77,8 +49,36 @@ void free_memory(float* U, float* S, float* V, float* A) {
     cudaFree(A);
 }
 
+__global__ void svd_kernel(float* U, float* S, float* V, float* A, int m, int n, int r) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row < m && col < n) {
+        float val = 0.0f;
+        for (int _r = 0; _r < r; _r++) {
+            float u = U[row * r + _r];
+            float v = V[col * r + _r];
+            val += S[_r] * u * v;
+        }
+        A[row * n + col] = val;
+    }
+}
+
+void svd(float *U, float* S, float* V, float* A, int m, int n, int r, int num_threads_per_block) {
+    dim3 threads_per_block(num_threads_per_block, num_threads_per_block);
+    dim3 num_blocks((n + threads_per_block.x - 1) / threads_per_block.x, (m + threads_per_block.y - 1) / threads_per_block.y);
+    printf("num_blocks = (%d, %d)\n", num_blocks.x, num_blocks.y);
+    printf("threads_per_block = (%d, %d)\n", threads_per_block.x, threads_per_block.y);
+    svd_kernel<<<num_blocks, threads_per_block>>>(U, S, V, A, m, n, r);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA error: %s\n", cudaGetErrorString(err));
+        exit(EXIT_FAILURE);
+    }
+    cudaDeviceSynchronize();
+}
+
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
+    if (argc != 5) {
         fprintf(stderr, "Usage: %s <m> <n> <r> <nt>\n", argv[0]);
         return EXIT_FAILURE;
     }
@@ -90,8 +90,17 @@ int main(int argc, char *argv[]) {
     memory_allocate(&U, &S, &V, &A, m, n, r);
     random_init(U, S, V, m, n, r);
 
+    printf("U:\n");
+    print_matrix(U, m, r);
+    printf("S:\n");
+    print_matrix(S, r, 1);
+    printf("V:\n");
+    print_matrix(V, n, r);
+
     svd(U, S, V, A, m, n, r, num_threads_per_block);
-    cudaDeviceSynchronize();
+
+    printf("A (result of SVD):\n");
+    print_matrix(A, m, n);
 
     free_memory(U, S, V, A);
 }
