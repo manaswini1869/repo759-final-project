@@ -125,35 +125,21 @@ int main(int argc, char *argv[]) {
     memory_allocate(&U, &S, &diag_S, &V, &VT, &A, &naive_A, &US, m, n, r);
     random_init(U, S, diag_S, V, VT, m, n, r);
 
-    printf("U:\n");
-    print_matrix(U, m, r);
-    printf("S:\n");
-    print_matrix(S, r, 1);
-    printf("diag_S:\n");
-    print_matrix(diag_S, r, r);
-    printf("V:\n");
-    print_matrix(V, n, r);
-    printf("VT:\n");
-    print_matrix(VT, r, n);
-
     cudaEvent_t start;
     cudaEvent_t stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
-    cudaEventRecord(start);
-    svd(U, S, V, A, m, n, r, num_threads_per_block);
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
     float ms;
-    cudaEventElapsedTime(&ms, start, stop);
 
-    printf("A:\n");
-    print_matrix(A, m, n);
-    printf("Time taken: %f ms\n", ms);
+    // printf("U:\n");
+    // print_matrix(U, m, r);
+    // printf("S:\n");
+    // print_matrix(S, r, 1);
+    // printf("diag_S:\n");
+    // print_matrix(diag_S, r, r);
+    // printf("V:\n");
+    // print_matrix(V, n, r);
+    // printf("VT:\n");
+    // print_matrix(VT, r, n);
 
-    cudaEvent_t start;
-    cudaEvent_t stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
@@ -162,12 +148,24 @@ int main(int argc, char *argv[]) {
     matmul(US, VT, naive_A, m, n, r, num_threads_per_block);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
-    float ms;
     cudaEventElapsedTime(&ms, start, stop);
 
-    printf("naive_A (result of U * diag(S) * VT):\n");
-    print_matrix(naive_A, m, n);
-    printf("Time taken: %f ms\n", ms);
+    // printf("naive_A (result of U * diag(S) * VT):\n");
+    // print_matrix(naive_A, m, n);
+    printf("Time taken (baseline): %f ms\n", ms);
+
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
+    svd(U, S, V, A, m, n, r, num_threads_per_block);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&ms, start, stop);
+
+    // printf("A:\n");
+    // print_matrix(A, m, n);
+    printf("Time taken (ours): %f ms\n", ms);
 
     free_memory(U, S, V, A);
 }
