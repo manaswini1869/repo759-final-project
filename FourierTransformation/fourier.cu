@@ -1,62 +1,85 @@
-#include "vscale.cuh"
-#include <cuda.h>
-#include <stdio.h>
+// nvcc fourierft_cuda.cu -lcufft -o fourierft_cuda
+#include <iostream>
+#include <vector>
 #include <random>
+#include <set>
+#include <cufft.h>
 
-#define NUM_THREADS 512
+int main(int argc, char* argv[]) {
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <rows> <cols> <C>" << std::endl;
+        return 1;
+    }
 
-int main(int argc, char *argv[]) {
-	if (argc < 3) {
-		printf("Usage: %s <rows> <cols>\n", argv[0]);
-		return 1;
-	}
+    int rows = std::stoi(argv[1]);
+    int cols = std::stoi(argv[2]);
+    int C = std::stoi(argv[3]);
+    int size = rows * cols;
 
-	int rows = atoi(argv[1]);
-	int cols = atoi(argv[2]);
-    int C = atoi(argv[3]);
-	int total_size = rows * cols;
+    // aandom frequency selection
+    std::set<std::pair<int, int>> freq_positions;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dist(-10.0f, 10.0f);
+    while (freq_positions.size() < C) {
+        int i = gen() % rows;
+        int j = gen() % cols;
+        freq_positions.insert({i, j});
+    }
 
-	std::random_device entropy_source;
-	std::mt19937_64 generator(entropy_source());
-	const float minF = -10.0f, maxF = 10.0f;
-	std::uniform_real_distribution<float> distF(minF, maxF);
+    // create host-side frequency domain matrix (complex)
+    cufftComplex* h_freq = new cufftComplex[size];
+    for (int i = 0; i < size; ++i) {
+        h_freq[i].x = 0.0f;
+        h_freq[i].y = 0.0f;
+    }
 
-	float *F;
-	cudaMallocManaged((void **)&F, sizeof(float) * total_size);
+    // set spectral coefficients
+    for (const auto& pos : freq_positions) {
+        int idx = pos.first * cols + pos.second;
+        h_freq[idx].x = dist(gen); // real
+        h_freq[idx].y = dist(gen); // imag
+    }
 
-    float *FT; // transpose matrix
-	cudaMallocManaged((void **)&T, sizeof(float) * total_size);
+    // sllocate device memory
+    cufftComplex* d_freq;
+    float* d_spatial;
+    CHECK_CUDA(cudaMalloc(&d_freq, sizeof(cufftComplex) * size));
+    CHECK_CUDA(cudaMalloc(&d_spatial, sizeof(float) * size));
+    CHECK_CUDA(cudaMemcpy(d_freq, h_freq, sizeof(cufftComplex) * size, cudaMemcpyHostToDevice));
 
-	for (int i = 0; i < rows; i++) {
-		for (int j = 0; j < cols; j++) {
-			F[i * cols + j] = distF(generator);
-		}
-	}
+    // setup cuFFT plan
+    cufftHandle plan;
+    if (cufftPlan2d(&plan, rows, cols, CUFFT_C2R) != CUFFT_SUCCESS) {
+        std::cerr << "CUFFT plan creation failed!" << std::endl;
+        return 1;
+    }
 
-    for (int i = 0; i < rows; i++) {
-		for (int j = 0; j < cols; j++) {
-			FT[j * rows + i] = F[i * cols + j];
-		}
-	}
+    // execute inverse FFT
+    if (cufftExecC2R(plan, d_freq, d_spatial) != CUFFT_SUCCESS) {
+        std::cerr << "CUFFT execution failed!" << std::endl;
+        return 1;
+    }
 
-	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
+    // copy result back to host
+    std::vector<float> h_spatial(size);
+    CHECK_CUDA(cudaMemcpy(h_spatial.data(), d_spatial, sizeof(float) * size, cudaMemcpyDeviceToHost));
 
-	int device = -1;
-	cudaGetDevice(&device);
-	cudaMemPrefetchAsync(F, sizeof(float) * total_size, device, NULL);
+    // normalize and print result
+    std::cout << "Reconstructed ΔW (spatial domain):" << std::endl;
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            float val = h_spatial[i * cols + j] / size;
+            std::cout << std::fixed << std::setw(8) << std::setprecision(2) << val << " ";
+        }
+        std::cout << std::endl;
+    }
 
-	int NUM_BLOCKS = (total_size + NUM_THREADS - 1) / NUM_THREADS;
+    // Cleanup
+    delete[] h_freq;
+    cufftDestroy(plan);
+    cudaFree(d_freq);
+    cudaFree(d_spatial);
 
-	cudaEventRecord(start);
-	cudaDeviceSynchronize();
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-
-	float ms;
-	cudaEventElapsedTime(&ms, start, stop);
-
-	// Cleanup
-	cudaFree(F);
+    return 0;
 }

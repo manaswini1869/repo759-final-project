@@ -8,6 +8,7 @@
 
 if [ "$1" = "compile" ]; then
   g++ fourier.cpp -Wall -O3 -std=c++11 -o fourier-cpp -fopenmp
+	sudo apt install libfftw3-dev
 elif [ "$1" = "run" ]; then
   for i in {10..12}; do
 		rows=$((RANDOM % 100 + 1))
