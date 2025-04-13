@@ -136,16 +136,38 @@ int main(int argc, char *argv[]) {
     printf("VT:\n");
     print_matrix(VT, r, n);
 
+    cudaEvent_t start;
+    cudaEvent_t stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
     svd(U, S, V, A, m, n, r, num_threads_per_block);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms;
+    cudaEventElapsedTime(&ms, start, stop);
 
-    printf("A (result of SVD):\n");
+    printf("A:\n");
     print_matrix(A, m, n);
+    printf("Time taken: %f ms\n", ms);
 
+    cudaEvent_t start;
+    cudaEvent_t stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start);
     matmul(U, diag_S, US, m, r, r, num_threads_per_block);
     matmul(US, VT, naive_A, m, n, r, num_threads_per_block);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms;
+    cudaEventElapsedTime(&ms, start, stop);
 
     printf("naive_A (result of U * diag(S) * VT):\n");
     print_matrix(naive_A, m, n);
+    printf("Time taken: %f ms\n", ms);
 
     free_memory(U, S, V, A);
 }
