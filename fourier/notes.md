@@ -34,4 +34,6 @@ parameters and nLt coefficient parameters for FourierFT.
 
 - Instead of storing full ΔW matrices for each layer, store only a few Fourier domain coefficients and reconstruct ΔW using inverse FFT.
 - FourierFT selects only a few (say, C) frequency positions and learns (?)coefficients at those points. The rest are zero.
--
+- // nvcc fourier.cu -lcufft -o fourier
+
+https://docs.nvidia.com/cuda/cufftdx/examples.html
