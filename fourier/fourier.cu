@@ -1,19 +1,18 @@
-// your_program_name.cu
-#include <algorithm> // For std::min
-#include <cmath>     // For fabs in comparison
-#include <cstring>   // For memcpy
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <random>
-#include <stdexcept> // For std::runtime_error
-#include <string>    // For std::stoi, std::string
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 // CUDA specific includes
 #include <cuda_runtime.h> // For cudaMallocManaged, cudaMemset, cudaFree, cudaDeviceSynchronize, etc.
 #include <cufft.h> // CUDA FFT library
 
-#include "load_ckpt.cuh" // Assuming this header provides load_ckpt_host_float and load_ckpt_host_int
+#include "load_ckpt.cuh"
 
 void print_matrix(const float *data, int rows, int cols, int print_rows = 10,
                   int print_cols = 10, const char *title = "Matrix") {
@@ -87,15 +86,12 @@ __global__ void normalizeReal(float *data, size_t n, float scale_factor) {
 }
 
 int main(int argc, char *argv[]) {
-  // Define the dimensions of the dense matrix
   int ct_mat_rows = 2304;
   int ct_mat_cols = 1024;
   size_t ct_mat_size = static_cast<size_t>(ct_mat_rows) * ct_mat_cols;
   size_t ct_mat_bytes =
       ct_mat_size * sizeof(float); // Size for the float matrix
 
-  // Directories for loading data
-  // NOTE: Adjust these paths based on where your executable is relative to the
   // checkpoint files.
   std::string ct_directory =
       "../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-CT.npy";
@@ -107,10 +103,9 @@ int main(int argc, char *argv[]) {
   int *h_locs = nullptr;
 
   // Managed memory pointers
-  float *d_ct = nullptr;     // Managed memory for the sparse coefficients array
-  int *d_locs = nullptr;     // Managed memory for the sparse locations array
-  float *d_ct_mat = nullptr; // Managed memory for the reconstructed dense float
-                             // matrix (Input to IFFT Prep)
+  float *d_ct = nullptr;
+  int *d_locs = nullptr;
+  float *d_ct_mat = nullptr; // matrix (Input to IFFT Prep)
   cufftComplex *d_freq_complex =
       nullptr; // Managed memory for the complex freq data (Input to IFFT)
   float *d_spatial_real = nullptr; // Managed memory for the spatial data
@@ -296,7 +291,7 @@ int main(int argc, char *argv[]) {
     // --- Prepare for Inverse Fourier Transform (IFFT) ---
 
     // 10. Allocate Managed Memory for Complex Frequency Input
-    // We assume the dense float matrix d_ct_mat represents the real parts of
+    // Assuming the dense float matrix d_ct_mat represents the real parts of
     // the complex frequency matrix, with imaginary parts being zero.
     size_t freq_complex_size = static_cast<size_t>(ct_mat_rows) * ct_mat_cols;
     size_t freq_complex_bytes = freq_complex_size * sizeof(cufftComplex);
