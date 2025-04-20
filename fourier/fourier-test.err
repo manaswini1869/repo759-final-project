@@ -1,0 +1,3 @@
+fourier-test.cu(195): warning #20054-D: dynamic initialization is not supported for a function-scope static __shared__ variable within a __device__/__global__ function
+
+An error occurred: CUDA Error during row IFFT kernel launch: an illegal memory access was encountered

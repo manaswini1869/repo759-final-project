@@ -17,7 +17,7 @@
 # Add -I${CUDA_INCLUDE_PATH} and -L${CUDA_LIB_PATH} if CUDA paths are non-standard
 
 module load nvidia/cuda/11.8.0
-nvcc -std=c++17 fourier.cu ../cnpy/cnpy.cpp ../utils/load_ckpt.cu -I../utils -I../cnpy -lcufft -lz -o fourier
-
+nvcc -std=c++17 fourier-test.cu ../cnpy/cnpy.cpp ../utils/load_ckpt.cu -I../utils -I../cnpy -lcufft -lz -o fourier
+./fourier
 # Add -I/path/to/load_ckpt/header if load_ckpt.cuh is not in the same dir
 
