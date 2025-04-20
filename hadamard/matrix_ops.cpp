@@ -16,9 +16,11 @@ __global__ void hadamard_kernel(float* H, int n) {
     if (row >= n || col >= n) return;
 
     int pop = __popc(row & col);
-    int sign = (pop & 1) ? -1 : 1;  // Even => 1, Odd => -1
+    int sign = 1 - 2 * (pop & 1);  // Branchless: Even => 1, Odd => -1 (remove warp diverngence)
+
     H[row * n + col] = static_cast<float>(sign);
 }
+
 
 void create_hadamard_matrix(int n, float** d_H) {
     cudaMalloc(d_H, n * n * sizeof(float));
@@ -153,19 +155,20 @@ int next_power_of_2(int n) {
 
 
 /*CPU Implementation*/
-// void create_hadamard_matrix(int n, float** d_H) {
-//     std::vector<float> H_host(n * n, 1.0f);
+/* void create_hadamard_matrix(int n, float** d_H) {
+    std::vector<float> H_host(n * n, 1.0f);  // 1. Initialize a flat array full of +1s
 
-//     for (int i = 1; i < n; i <<= 1) {
-//         for (int y = 0; y < i; ++y) {
-//             for (int x = 0; x < i; ++x) {
-//                 H_host[(y + i) * n + x] = H_host[y * n + x];
-//                 H_host[y * n + (x + i)] = H_host[y * n + x];
-//                 H_host[(y + i) * n + (x + i)] = -H_host[y * n + x];
-//             }
-//         }
-//     }
+    for (int i = 1; i < n; i <<= 1) {        // 2. i = 1, 2, 4, 8, 16... (doubling each time)
+        for (int y = 0; y < i; ++y) {         // 3. Loop over rows of current block
+            for (int x = 0; x < i; ++x) {     // 4. Loop over columns of current block
+                // Fill 3 new quadrants based on existing quadrant
+                H_host[(y + i) * n + x] = H_host[y * n + x];       // Copy to bottom-left
+                H_host[y * n + (x + i)] = H_host[y * n + x];       // Copy to top-right
+                H_host[(y + i) * n + (x + i)] = -H_host[y * n + x];// Copy and negate to bottom-right
+            }
+        }
+    }
 
-//     cudaMalloc(d_H, n * n * sizeof(float));
-//     cudaMemcpy(*d_H, H_host.data(), n * n * sizeof(float), cudaMemcpyHostToDevice);
-// }
+    cudaMalloc(d_H, n * n * sizeof(float));
+    cudaMemcpy(*d_H, H_host.data(), n * n * sizeof(float), cudaMemcpyHostToDevice);
+} */
