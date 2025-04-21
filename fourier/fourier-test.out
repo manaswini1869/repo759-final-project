@@ -1,23 +1,120 @@
-Original dimensions: 2304x1024
-Padding needed for custom FFT. Padded dimensions: 4096x1024
-Loading coefficients from ../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-CT.npy into host memory...
-Loaded host array shape: 3000x1 (3000 floats), from ../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-CT.npy
-Loaded 3000 sparse coefficients. Shape (3000x1)
-Sparse Coefficients (d_ct) (1x3000):
-    1.794268     1.239541    -0.509536    -1.117748    -1.943048    -1.214080    -0.433263    -0.017846    -0.441548     1.335464    -1.379815    -1.440811    -2.389260     1.839719     1.000663     0.488711     0.003516    -0.143705     1.047652    -1.071700 ...
-Loading locations from ../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-locs.npy into host memory...
-Loaded host array shape: 2x3000 (6000 ints), from ../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-locs.npy
-Loaded 6000 location indices. Shape (2x3000)
-Allocating CUDA managed memory for dense float matrix d_ct_mat (9437184 bytes)...
-Initializing dense matrix d_ct_mat to zero...
-Reconstructing dense matrix d_ct_mat...
-Finished reconstructing dense matrix d_ct_mat.
-
-Allocating PADDED CUDA managed memory for complex frequency input (d_freq_complex_padded, 33554432 bytes)...
-Copying dense float matrix to PADDED complex frequency matrix (imaginary=0) using kernel...
-Finished copying to padded complex matrix.
-Allocating CUDA managed memory for real spatial output (d_spatial_real)...
-Allocating temporary buffer for transpose (d_temp_transpose)...
-
-Executing Custom 2D IFFT...
- Step 1: IFFT along rows (4096 transforms of size 1024)...
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 20.0847 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 2.37466 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.87597 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.75107 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.47456 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.29946 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.37011 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.37645 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 5.88698 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 3.96496 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 2.69094 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 2.30707 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.92611 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.77869 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 1.80736 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 2.07565 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 71.0564 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 14.0401 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 9.58464 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 7.32352 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 6.16448 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 5.8857 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 5.82784 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 5.88288 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 138.22 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 49.3853 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 32.7997 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 24.4868 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 20.2528 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 19.7645 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 19.5185 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 19.6454 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 295.537 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 91.5835 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 60.7048 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 45.7001 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 38.5188 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 37.7784 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 37.1279 ms
+Loaded array shape: 3000x1, from ./fourier-checkpoints/gemma-2-2b-fourier-CT.npy
+Loaded array shape: 2x3000, from ./fourier-checkpoints/gemma-2-2b-fourier-locs.npy
+cuFFT inverse time: 37.8522 ms

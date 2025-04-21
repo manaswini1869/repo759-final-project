@@ -1,429 +1,143 @@
-#include <algorithm>
-#include <cmath>
-#include <cstring>
-#include <iomanip>
 #include <iostream>
-#include <random>
-#include <stdexcept>
-#include <string>
+#include <cmath>
 #include <vector>
+#include <cufft.h>
+#include "load_ckpt.h"
+#include "cnpy.h"
+#include <cuda_fp16.h>
+#include <cuComplex.h>
 
-// CUDA specific includes
-#include <cuda_runtime.h> // For cudaMallocManaged, cudaMemset, cudaFree, cudaDeviceSynchronize, etc.
-#include <cufft.h> // CUDA FFT library
-
-#include "load_ckpt.cuh"
-
-void print_matrix(const float *data, int rows, int cols, int print_rows = 10,
-                  int print_cols = 10, const char *title = "Matrix") {
-  std::cout << title << " (" << rows << "x" << cols << "):\n";
-  int r_limit = std::min(rows, print_rows);
-  int c_limit = std::min(cols, print_cols);
-  if (!data) {
-    std::cout << "(null pointer)\n";
-    return;
-  }
-  // Ensure data is visible on the host for printing
-  cudaDeviceSynchronize();
-
-  for (int i = 0; i < r_limit; ++i) {
-    for (int j = 0; j < c_limit; ++j) {
-      std::cout << std::fixed << std::setw(12) << std::setprecision(6)
-                << data[static_cast<size_t>(i) * cols + j] << " ";
-    }
-    if (cols > c_limit)
-      std::cout << "...";
-    std::cout << "\n";
-  }
-  if (rows > r_limit)
-    std::cout << "...\n";
+__global__ void extract_real_normalized(float* real_out, cufftComplex* complex_in, int size, float norm) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+    real_out[idx] = complex_in[idx].x * norm;
 }
 
-void print_complex_matrix(const cufftComplex *data, int rows, int cols,
-                          int print_rows = 10, int print_cols = 10,
-                          const char *title = "Complex Matrix") {
-  std::cout << title << " (" << rows << "x" << cols << " complex elements):\n";
-  int r_limit = std::min(rows, print_rows);
-  int c_limit = std::min(cols, print_cols);
-  if (!data) {
-    std::cout << " (null pointer)\n";
-    return;
-  }
-  // Ensure data is visible on the host for printing
-  cudaDeviceSynchronize();
+__global__ void batched_matvec_kernel(const float* mat, const float* vecs, float* outs,
+                                      int batch_size, int M, int N) {
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int b = blockIdx.y;
 
-  for (int i = 0; i < r_limit; ++i) {
-    for (int j = 0; j < c_limit; ++j) {
-      std::cout << std::fixed << std::setw(18) << std::setprecision(6) << "("
-                << data[static_cast<size_t>(i) * cols + j].x << ","
-                << data[static_cast<size_t>(i) * cols + j].y << ") ";
+    if (row >= N || b >= batch_size) return;
+
+    float sum = 0.0f;
+    const float* vec = vecs + b * M;
+    for (int i = 0; i < M; ++i) {
+        sum += vec[i] * mat[i * N + row];
     }
-     if (cols > c_limit) std::cout << "...";
-    std::cout << "\n";
-  }
-   if (rows > r_limit) std::cout << "...\n";
+    outs[b * N + row] = sum;
 }
 
-// --- CUDA Kernels ---
-
-// Kernel to copy real data into the real part of complex data, setting
-// imaginary to zero
-__global__ void floatToComplexRealOnly(const float *real_in,
-                                       cufftComplex *complex_out, size_t n) {
-  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < n) {
-    complex_out[idx].x = real_in[idx];
-    complex_out[idx].y = 0.0f;
-  }
-}
-
-// Kernel to normalize real data after IFFT
-__global__ void normalizeReal(float *data, size_t n, float scale_factor) {
-  size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < n) {
-    data[idx] *= scale_factor;
-  }
-}
-
-int main(int argc, char *argv[]) {
-  int ct_mat_rows = 2304;
-  int ct_mat_cols = 1024;
-  size_t ct_mat_size = static_cast<size_t>(ct_mat_rows) * ct_mat_cols;
-  size_t ct_mat_bytes =
-      ct_mat_size * sizeof(float); // Size for the float matrix
-
-  // checkpoint files.
-  std::string ct_directory =
-      "../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-CT.npy";
-  std::string locs_directory =
-      "../checkpoints/gemma-2-2b/fourier/gemma-2-2b-fourier-locs.npy";
-
-  // Host pointers for loaded data
-  float *h_ct = nullptr;
-  int *h_locs = nullptr;
-
-  // Managed memory pointers
-  float *d_ct = nullptr;
-  int *d_locs = nullptr;
-  float *d_ct_mat = nullptr; // matrix (Input to IFFT Prep)
-  cufftComplex *d_freq_complex =
-      nullptr; // Managed memory for the complex freq data (Input to IFFT)
-  float *d_spatial_real = nullptr; // Managed memory for the spatial data
-                                   // (Output of IFFT), i.e., delta(w)
-
-  int ct_rows_loaded = 0, ct_cols_loaded = 0;
-  int locs_rows_loaded = 0, locs_cols_loaded = 0;
-
-  size_t ct_sparse_size = 0;   // Number of elements in the sparse ct array
-  size_t locs_sparse_size = 0; // Number of elements in the sparse locs array
-
-  cufftHandle plan; // cuFFT plan handle
-  bool plan_created = false;
-
-  try {
-    // 1. Load Sparse Coefficients into Host Memory
-    std::cout << "Loading coefficients from " << ct_directory
-              << " into host memory..." << std::endl;
-    auto ct_dims =
-        load_ckpt_host_float(ct_directory, h_ct); // h_ct allocated by function
-    ct_rows_loaded = std::get<0>(ct_dims);
-    ct_cols_loaded = std::get<1>(ct_dims);
-    if (h_ct == nullptr || ct_cols_loaded <= 0) {
-      throw std::runtime_error(
-          "Failed to load coefficients or zero coefficients loaded.");
-    }
-    ct_sparse_size = static_cast<size_t>(ct_rows_loaded) * ct_cols_loaded;
-    size_t ct_sparse_bytes = ct_sparse_size * sizeof(float);
-    std::cout << "Loaded " << ct_sparse_size << " sparse coefficients ("
-              << ct_sparse_bytes << " bytes). Shape (" << ct_rows_loaded << "x"
-              << ct_cols_loaded << ")" << std::endl;
-
-    // 2. Allocate Managed Memory for Sparse Coefficients and Copy
-    std::cout << "Allocating CUDA managed memory for sparse coefficients..."
-              << std::endl;
-    cudaMallocManaged(&d_ct, ct_sparse_bytes);
-    std::cout << "Copying sparse coefficients from host to managed memory..."
-              << std::endl;
-    memcpy(d_ct, h_ct,
-           ct_sparse_bytes); // Host-side copy is fine for managed memory
-
-    // 3. Free Temporary Host Memory for Sparse Coefficients
-    std::cout << "Freeing temporary host memory for sparse coefficients..."
-              << std::endl;
-    delete[] h_ct;
-    h_ct = nullptr;
-
-    std::cout << "\n--- First few loaded sparse coefficients (d_ct array, "
-                 "managed memory) ---"
-              << std::endl;
-    print_matrix(d_ct, 1, ct_sparse_size, 1, 20, "Sparse Coefficients (d_ct)");
-    std::cout << "-------------------------------------------------------------"
-                 "-----------\n"
-              << std::endl;
-
-    // 4. Load Sparse Locations into Host Memory
-    std::cout << "Loading locations from " << locs_directory
-              << " into host memory..." << std::endl;
-    auto locs_dims = load_ckpt_host_int(locs_directory,
-                                        h_locs); // h_locs allocated by function
-    locs_rows_loaded = std::get<0>(locs_dims);
-    locs_cols_loaded = std::get<1>(locs_dims);
-    if (h_locs == nullptr ||
-        (locs_rows_loaded <= 0 &&
-         locs_cols_loaded <=
-             0)) { // Handle case where file exists but is empty/malformed
-      throw std::runtime_error(
-          "Failed to load locations or zero locations loaded.");
+int main(int argc, char** argv) {
+    if (argc < 2 || argc > 3) {
+        std::cerr << "Usage: " << argv[0] << " /input/input_x.npy [threads_per_block]\n";
+        return 1;
     }
 
-    locs_sparse_size = static_cast<size_t>(locs_rows_loaded) * locs_cols_loaded;
-    size_t locs_sparse_bytes = locs_sparse_size * sizeof(int);
-
-    // Sanity checks on loaded dimensions vs expected
-    if (ct_sparse_size !=
-        locs_cols_loaded) { // Expect locs_cols_loaded to match the number of
-                            // coefficients
-      std::cerr << "Warning: Mismatch! Number of coefficients ("
-                << ct_sparse_size << ") != number of location columns ("
-                << locs_cols_loaded << "). Using minimum for reconstruction."
-                << std::endl;
-    }
-    if (locs_rows_loaded != 2) {
-      std::cerr << "Warning: Expected locations array to have 2 rows (row, col "
-                   "indices), but got "
-                << locs_rows_loaded
-                << ". Assuming format [row_indices..., col_indices...]."
-                << std::endl;
-    }
-    if (locs_sparse_size != 2 * locs_cols_loaded) {
-      std::cerr << "Warning: Expected total locations elements to be 2 * "
-                   "num_coefficients, but got "
-                << locs_sparse_size << " vs " << 2 * locs_cols_loaded
-                << ". Check locs file format." << std::endl;
-    }
-
-    std::cout << "Loaded " << locs_sparse_size << " location indices ("
-              << locs_sparse_bytes << " bytes). Shape (" << locs_rows_loaded
-              << "x" << locs_cols_loaded << ")" << std::endl;
-
-    // 5. Allocate Managed Memory for Sparse Locations and Copy
-    std::cout << "Allocating CUDA managed memory for sparse locations..."
-              << std::endl;
-    cudaMallocManaged(&d_locs, locs_sparse_bytes);
-    std::cout << "Copying sparse locations from host to managed memory..."
-              << std::endl;
-    memcpy(d_locs, h_locs, locs_sparse_bytes);
-
-    // 6. Free Temporary Host Memory for Locations
-    std::cout << "Freeing temporary host memory for locations..." << std::endl;
-    delete[] h_locs; // Assuming load_ckpt_host_int used new[]
-    h_locs = nullptr;
-
-    // 7. Allocate Managed Memory for the Dense Float Matrix (Reconstructed C)
-    std::cout
-        << "Allocating CUDA managed memory for dense float matrix d_ct_mat ("
-        << ct_mat_bytes << " bytes)..." << std::endl;
-    cudaMallocManaged(&d_ct_mat, ct_mat_bytes);
-
-    // 8. Initialize Dense Matrix to Zero
-    std::cout
-        << "Initializing dense matrix d_ct_mat to zero using cudaMemset..."
-        << std::endl;
-    cudaMemset(d_ct_mat, 0, ct_mat_bytes);
-
-    // 9. Reconstruct Dense Matrix (on Host, accessing Managed Memory)
-    // Note: This reconstruction happens on the host using managed memory
-    // pointers. For very large matrices, a kernel could be more efficient.
-    std::cout << "Reconstructing dense matrix d_ct_mat on host using managed "
-                 "memory pointers..."
-              << std::endl;
-    size_t num_elements_to_copy = std::min(
-        ct_sparse_size,
-        static_cast<size_t>(locs_cols_loaded)); // Use min of coefficients
-                                                // loaded and location columns
-
-    // Ensure loaded data is visible to the host
-    cudaDeviceSynchronize();
-
-    for (size_t i = 0; i < num_elements_to_copy; ++i) {
-      int row_idx = -1;
-      int col_idx = -1;
-
-      // Assuming format where locs[i] is row, locs[locs_cols_loaded + i] is col
-      if (locs_rows_loaded >= 2 && i < locs_cols_loaded &&
-          (static_cast<size_t>(locs_cols_loaded) + i) < locs_sparse_size) {
-        row_idx = d_locs[i];
-        col_idx = d_locs[locs_cols_loaded +
-                         i]; // Assumes [rows..., cols...] structure
-      } else {
-        // This case should ideally not be hit if locs file format is consistent
-        // If it is hit, locs data is likely malformed or unexpected shape.
-        if (i == 0)
-          std::cerr << "Error: Unexpected location data format or insufficient "
-                       "elements in locs array for coefficient "
-                    << i << ". Expected at least " << 2 * locs_cols_loaded
-                    << " elements for shape (2," << locs_cols_loaded << ")."
-                    << std::endl;
-        continue; // Skip this coefficient if location data is invalid
-      }
-
-      // Bounds check before writing to the dense matrix
-      if (row_idx >= 0 && row_idx < ct_mat_rows && col_idx >= 0 &&
-          col_idx < ct_mat_cols) {
-        size_t dest_idx = static_cast<size_t>(row_idx) * ct_mat_cols + col_idx;
-        d_ct_mat[dest_idx] = d_ct[i]; // Write to managed memory from host
-      } else {
-        if (i < 10) { // Print only a few warnings to avoid flooding console
-          std::cerr << "Warning: Out-of-bounds location index (row=" << row_idx
-                    << ", col=" << col_idx << ") for coefficient index " << i
-                    << ". Skipping." << std::endl;
-        } else if (i == 10) {
-          std::cerr << "Warning: Further out-of-bounds warnings suppressed."
-                    << std::endl;
+    std::string xfile = argv[1];
+    int block_size = 256;
+    if (argc == 3) {
+        block_size = std::stoi(argv[2]);
+        if (block_size <= 0 || block_size > 1024) {
+            std::cerr << "Invalid block size. Must be between 1 and 1024.\n";
+            return 1;
         }
-      }
     }
 
-    // Ensure host writes to managed memory are visible to the device
+    int ct_mat_rows = 2304, ct_mat_cols = 1024;
+    size_t mat_size = ct_mat_rows * ct_mat_cols;
+    // step 1: creating the sparse vector
+    std::string ct_directory = "./fourier-checkpoints/gemma-2-2b-fourier-CT.npy";
+    float* ct_host = nullptr;
+    auto [ct_rows, ct_cols] = load_ckpt_float(ct_directory, ct_host);
+
+    std::string locs_directory = "./fourier-checkpoints/gemma-2-2b-fourier-locs.npy";
+    int* locs_host = nullptr;
+    auto [locs_rows, locs_cols] = load_ckpt_int(locs_directory, locs_host);
+
+    cufftComplex* freq_domain;
+    cudaMalloc(&freq_domain, mat_size * sizeof(cufftComplex));
+    cudaMemset(freq_domain, 0, mat_size * sizeof(cufftComplex));
+
+    for (int i = 0; i < locs_cols; ++i) {
+        int u = locs_host[i];
+        int v = locs_host[locs_cols + i];
+        int idx = u * ct_mat_cols + v;
+        cufftComplex val = {ct_host[i], 0.0f};
+        cudaMemcpy(&freq_domain[idx], &val, sizeof(cufftComplex), cudaMemcpyHostToDevice);
+    }
+
+    cufftComplex* time_domain;
+    cudaMalloc(&time_domain, mat_size * sizeof(cufftComplex));
+
+    cufftHandle plan;
+    cufftResult result = cufftPlan2d(&plan, ct_mat_rows, ct_mat_cols, CUFFT_C2C);
+    if (result != CUFFT_SUCCESS) {
+        std::cerr << "cuFFT plan creation failed with error code: " << result << "\n";
+        return 1;
+    }
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    result = cufftExecC2C(plan, freq_domain, time_domain, CUFFT_INVERSE);
+    if (result != CUFFT_SUCCESS) {
+        std::cerr << "cuFFT execution failed with error code: " << result << "\n";
+        return 1;
+    }
+
+    float* real_part;
+    cudaMalloc(&real_part, mat_size * sizeof(float));
+    int blocks = (mat_size + block_size - 1) / block_size;
+    float norm_factor = 1.0f / static_cast<float>(mat_size);
+    extract_real_normalized<<<blocks, block_size>>>(real_part, time_domain, mat_size, norm_factor);
     cudaDeviceSynchronize();
-    std::cout << "Finished reconstructing dense matrix d_ct_mat." << std::endl;
 
-    // --- Prepare for Inverse Fourier Transform (IFFT) ---
+    cnpy::NpyArray x_np = cnpy::npy_load(xfile);
+    size_t B = x_np.shape[0];
+    size_t D = x_np.shape[1];
 
-    // 10. Allocate Managed Memory for Complex Frequency Input
-    // Assuming the dense float matrix d_ct_mat represents the real parts of
-    // the complex frequency matrix, with imaginary parts being zero.
-    size_t freq_complex_size = static_cast<size_t>(ct_mat_rows) * ct_mat_cols;
-    size_t freq_complex_bytes = freq_complex_size * sizeof(cufftComplex);
-    std::cout << "\nAllocating CUDA managed memory for complex frequency input "
-                 "(d_freq_complex)..."
-              << std::endl;
-    cudaMallocManaged(&d_freq_complex, freq_complex_bytes);
-
-    // 11. Copy Reconstructed Float Matrix to Complex Matrix (Imaginary=0) using
-    // Kernel
-    std::cout << "Copying dense float matrix to complex frequency matrix "
-                 "(imaginary=0) using kernel..."
-              << std::endl;
-    int threadsPerBlock = 256;
-    int numBlocks = (freq_complex_size + threadsPerBlock - 1) / threadsPerBlock;
-    floatToComplexRealOnly<<<numBlocks, threadsPerBlock>>>(
-        d_ct_mat, d_freq_complex, freq_complex_size);
-    cudaGetLastError();      // Check for kernel launch errors
-    cudaDeviceSynchronize(); // Wait for kernel to finish
-    std::cout << "Finished copying to complex matrix." << std::endl;
-
-    // --- Optional: Print the complex frequency matrix (for DEBUG) ---
-    if (ct_mat_rows <= 16 && ct_mat_cols <= 16) {
-      std::cout << "\n--- Complex Frequency Matrix (d_freq_complex, managed "
-                   "memory) ---"
-                << std::endl;
-      print_complex_matrix(d_freq_complex, ct_mat_rows, ct_mat_cols,
-                           ct_mat_rows, ct_mat_cols,
-                           "Complex Frequency Matrix");
-      std::cout << "-----------------------------------------------------------"
-                   "-------\n"
-                << std::endl;
-    } else {
-      std::cout
-          << "(Skipping print of large complex frequency matrix d_freq_complex)"
-          << std::endl;
+    if (D != ct_mat_rows) {
+        std::cerr << "Input dimension mismatch. Expected " << ct_mat_rows << ", got " << D << "\n";
+        return 1;
     }
 
-    // 12. Allocate Managed Memory for Real Spatial Output (delta(w))
-    size_t spatial_real_size =
-        static_cast<size_t>(ct_mat_rows) *
-        ct_mat_cols; // C2R IFFT of MxN complex gives MxN real
-    size_t spatial_real_bytes = spatial_real_size * sizeof(float);
-    std::cout << "Allocating CUDA managed memory for real spatial output "
-                 "(d_spatial_real)..."
-              << std::endl;
-    cudaMallocManaged(&d_spatial_real, spatial_real_bytes);
+    std::vector<float> X_host(B * D);
+    const uint16_t* x_data = x_np.data<uint16_t>();
+    for (size_t i = 0; i < B * D; ++i) {
+        __half h_val;
+        reinterpret_cast<uint16_t&>(h_val) = x_data[i];
+        X_host[i] = __half2float(h_val);
+    }
 
-    // 13. Create cuFFT Plan for 2D Complex-to-Real Inverse Transform
-    std::cout << "Creating cuFFT 2D C2R inverse transform plan..." << std::endl;
-    int dims[] = {ct_mat_cols,
-                  ct_mat_rows}; // cuFFT dimensions are {nx, ny} = {cols, rows}
-    cufftPlanMany(
-        &plan,
-        2,    // rank (2D)
-        dims, // dimensions {nx, ny}
-        NULL, 1,
-        0, // Input layout (contiguous complex, istride=1, idist=0 for batch=1)
-        NULL, 1,
-        0, // Output layout (contiguous real, ostride=1, odist=0 for batch=1)
-        CUFFT_C2R, // Transform type
-        1);        // batch size
-    plan_created = true;
-    std::cout << "cuFFT plan created successfully." << std::endl;
+    float* d_X;
+    cudaMalloc(&d_X, X_host.size() * sizeof(float));
+    cudaMemcpy(d_X, X_host.data(), X_host.size() * sizeof(float), cudaMemcpyHostToDevice);
 
-    // 14. Execute the Inverse Fourier Transform
-    std::cout << "Executing cuFFT C2R inverse transform..." << std::endl;
-    cufftExecC2R(plan, d_freq_complex, d_spatial_real);
-    cudaDeviceSynchronize(); // Wait for FFT to finish
-    std::cout << "cuFFT execution finished." << std::endl;
+    float* d_Y;
+    cudaMalloc(&d_Y, B * ct_mat_cols * sizeof(float));
 
-    // 15. Apply Scaling Factor (1 / total_real_elements)
-    // The C2R inverse transform output needs to be scaled by 1 / (rows * cols)
-    float scale_factor = 1.0f / static_cast<float>(ct_mat_rows * ct_mat_cols);
-    std::cout << "Applying scaling factor (" << scale_factor
-              << ") to the output..." << std::endl;
-    numBlocks = (spatial_real_size + threadsPerBlock - 1) /
-                threadsPerBlock; // Recalculate if needed, but size is the same
-                                 // as complex input size
-    normalizeReal<<<numBlocks, threadsPerBlock>>>(
-        d_spatial_real, spatial_real_size, scale_factor);
-    cudaGetLastError();      // Check for kernel launch errors
-    cudaDeviceSynchronize(); // Wait for kernel to finish
-    std::cout << "Scaling finished." << std::endl;
+    dim3 vecBlock(block_size);
+    dim3 vecGrid((ct_mat_cols + block_size - 1) / block_size, B);
+    batched_matvec_kernel<<<vecGrid, vecBlock>>>(real_part, d_X, d_Y, B, ct_mat_rows, ct_mat_cols);
+    cudaDeviceSynchronize();
 
-    // --- Output the Result (delta(w)) ---
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, start, stop);
+    std::cout << "cuFFT inverse time: " << ms << " ms\n";
 
-    std::cout << "\n--- Resulting Spatial Matrix (delta(w), managed memory) ---"
-              << std::endl;
-    // Print the top-left corner or the whole matrix if small
-    print_matrix(d_spatial_real, ct_mat_rows, ct_mat_cols, 10, 10,
-                 "Delta(w) (Spatial Matrix)");
-    std::cout << "----------------------------------------------------------\n"
-              << std::endl;
-  } catch (const std::exception &e) {
-    std::cerr << "An error occurred: " << e.what() << std::endl;
-    // Cleanup any allocated memory before exiting
-    if (h_ct)
-      delete[] h_ct;
-    if (h_locs)
-      delete[] h_locs;
-    if (d_ct)
-      cudaFree(d_ct);
-    if (d_locs)
-      cudaFree(d_locs);
-    if (d_ct_mat)
-      cudaFree(d_ct_mat);
-    if (d_freq_complex)
-      cudaFree(d_freq_complex);
-    if (d_spatial_real)
-      cudaFree(d_spatial_real);
-    if (plan_created)
-      cufftDestroy(plan); // Destroy plan if created
-    return EXIT_FAILURE;
-  }
-
-  // --- Cleanup CUDA Managed Memory and cuFFT Plan ---
-  std::cout << "Cleaning up CUDA managed memory and cuFFT plan..." << std::endl;
-  if (d_ct)
-    cudaFree(d_ct);
-  if (d_locs)
-    cudaFree(d_locs);
-  if (d_ct_mat)
-    cudaFree(d_ct_mat);
-  if (d_freq_complex)
-    cudaFree(d_freq_complex);
-  if (d_spatial_real)
-    cudaFree(d_spatial_real);
-  if (plan_created)
+    delete[] ct_host;
+    delete[] locs_host;
+    cudaFree(freq_domain);
+    cudaFree(time_domain);
+    cudaFree(real_part);
+    cudaFree(d_X);
+    cudaFree(d_Y);
     cufftDestroy(plan);
 
-  std::cout << "Execution finished successfully. Delta(w) computed."
-            << std::endl;
-  return 0;
+    return 0;
 }

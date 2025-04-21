@@ -1,7 +1,6 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
-#include <cuda_runtime.h>
 #include "load_ckpt.h"
 #include "cnpy.h"
 #include <cuda_fp16.h>
