@@ -22,4 +22,18 @@ void frame_compute_dw(const float* tff_m, const float* tff_n, const float* ct_ma
 
 void frame_compute_y(const float* x, const float* dw, float* y, size_t n, size_t m, size_t d, unsigned int threads_per_block);
 
+void frame_compute_y_2( const float* tff_m,
+                        const float* tff_n,
+                        const float* bct,
+                        const float* x,
+                        float* D1,
+                        float* D2,
+                        float* y,
+                        size_t num_tokens,
+                        size_t ct_mat_rows,
+                        size_t ct_mat_cols,
+                        size_t k_m, size_t k_n, size_t l_m, size_t l_n,
+                        unsigned int threads_per_block);
+
+
 #endif
