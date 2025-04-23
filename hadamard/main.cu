@@ -38,15 +38,12 @@ int main(int argc, char* argv[]) {
     create_hadamard_matrix(next_pow2_rows, &d_H_row);
     create_hadamard_matrix(next_pow2_cols, &d_H_col);
 
-    // Start timing
-    cudaEventRecord(start);
-
     // Step 4: Reconstruct and pad C matrix
     float* d_C = nullptr;
     reconstruct_C(C_values, C_locs, C_rows, C_cols, next_pow2_rows, next_pow2_cols, &d_C);
-    
-    // Ensure C is fully ready before using it
-    cudaDeviceSynchronize();
+
+    // Start timing
+    cudaEventRecord(start);
 
     // Step 5: Calculate deltaW = H * C * H
     float* d_deltaW = nullptr;
