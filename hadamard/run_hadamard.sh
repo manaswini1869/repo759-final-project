@@ -10,7 +10,7 @@
 module load nvidia/cuda/11.8.0
 
 # Compile all cpp/cu files into a single executable
-nvcc main.cu matrix_ops.cpp utils.cpp -o hadamard_exec -std=c++17 -O3 -Xcompiler -Wall
+nvcc main.cu matrix_ops.cu utils.cpp -o hadamard_exec -std=c++17 -O3 -Xcompiler -Wall
 
 # Loop over all inputs starting with x_*.bin
 for xfile in inputs/x_*.bin

@@ -9,7 +9,7 @@
 #include <iostream>
 
 // CUDA Kernel to create Hadamard matrix directly on device
-__global__ void hadamard_kernel(float* H, int n) {
+/* __global__ void hadamard_kernel(float* H, int n) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -30,7 +30,7 @@ void create_hadamard_matrix(int n, float** d_H) {
 
     hadamard_kernel<<<blocksPerGrid, threadsPerBlock>>>(*d_H, n);
     cudaDeviceSynchronize();
-}
+} */
 
 
 // Kernel to fill C matrix
@@ -155,7 +155,7 @@ int next_power_of_2(int n) {
 
 
 /*CPU Implementation*/
-/* void create_hadamard_matrix(int n, float** d_H) {
+ void create_hadamard_matrix(int n, float** d_H) {
     std::vector<float> H_host(n * n, 1.0f);  // 1. Initialize a flat array full of +1s
 
     for (int i = 1; i < n; i <<= 1) {        // 2. i = 1, 2, 4, 8, 16... (doubling each time)
@@ -171,4 +171,4 @@ int next_power_of_2(int n) {
 
     cudaMalloc(d_H, n * n * sizeof(float));
     cudaMemcpy(*d_H, H_host.data(), n * n * sizeof(float), cudaMemcpyHostToDevice);
-} */
+} 
