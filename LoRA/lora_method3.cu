@@ -1,190 +1,185 @@
 #include <cuda_runtime.h>
-#include <curand.h>
-#include <curand_kernel.h>
+#include <device_launch_parameters.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+#include "load_ckpt.h"
+#include "cnpy.h"
 
-// Function to check CUDA errors
-#define CHECK_CUDA_ERROR(call) { \
-    cudaError_t error = call; \
-    if (error != cudaSuccess) { \
-        fprintf(stderr, "CUDA error: %s at %s:%d\n", cudaGetErrorString(error), __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-}
+// Thread block size
+#define BLOCK_SIZE 8
 
-// CUDA kernel for matrix multiplication C = A * B
-__global__ void matrixMul(float *A, float *B, float *C, int rowsA, int colsA, int colsB) {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    if (row < rowsA && col < colsB) {
-        float sum = 0.0f;
-        for (int k = 0; k < colsA; k++) {
-            sum += A[row * colsA + k] * B[k * colsB + col];
+// CUDA kernel for matrix multiplication (optimized with shared memory)
+__global__ void matrixMulKernel(float* A, float* B, float* C, int M, int K, int N) {
+    // Block index
+    int blockRow = blockIdx.y;
+    int blockCol = blockIdx.x;
+
+    // Thread index
+    int threadRow = threadIdx.y;
+    int threadCol = threadIdx.x;
+
+    // Shared memory for tile of input matrices
+    __shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
+
+    // Each thread computes one element of C
+    float sum = 0.0f;
+
+    // Loop over all tiles
+    int numTiles = (K + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    for (int t = 0; t < numTiles; t++) {
+        // Load one tile of A and B into shared memory
+        int aRow = blockRow * BLOCK_SIZE + threadRow;
+        int aCol = t * BLOCK_SIZE + threadCol;
+        int bRow = t * BLOCK_SIZE + threadRow;
+        int bCol = blockCol * BLOCK_SIZE + threadCol;
+
+        // Boundary check
+        if (aRow < M && aCol < K)
+            As[threadRow][threadCol] = A[aRow * K + aCol];
+            else
+            As[threadRow][threadCol] = 0.0f;
+
+        if (bRow < K && bCol < N)
+            Bs[threadRow][threadCol] = B[bRow * N + bCol];
+        else
+            Bs[threadRow][threadCol] = 0.0f;
+
+        __syncthreads(); // Wait for all threads to load data
+
+        // Calculate partial dot product
+        for (int k = 0; k < BLOCK_SIZE; k++) {
+            sum += As[threadRow][k] * Bs[k][threadCol];
         }
-        C[row * colsB + col] = sum;
+
+        __syncthreads(); // Wait for all threads to finish using the tile
+    }
+
+    // Write result
+    int cRow = blockRow * BLOCK_SIZE + threadRow;
+    int cCol = blockCol * BLOCK_SIZE + threadCol;
+    if (cRow < M && cCol < N) {
+        C[cRow * N + cCol] = sum;
     }
 }
 
-// CUDA kernel to initialize matrices with random values
-__global__ void initializeRandom(float *data, int size, unsigned long seed, float min, float max) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size) {
-        curandState state;
-        curand_init(seed, idx, 0, &state);
-        data[idx] = min + curand_uniform(&state) * (max - min);
-    }
-}
-
-int main(int argc, char *argv[]) {
-    // Default dimensions if not provided
-    int M = 1024;  // A rows
-    int K = 512;   // A columns, B rows
-    int N = 256;   // B columns
-    int P = 2048;  // X rows (must equal N for matrix multiplication)
-                   // X is of shape (P x N), final output Y will be (P x M)
-    
-    // Parse command line arguments for matrix dimensions
-    if (argc >= 5) {
-        M = atoi(argv[1]);
-        K = atoi(argv[2]);
-        N = atoi(argv[3]);
-        P = atoi(argv[4]);
-        
-        // Validate dimensions
-        if (M <= 0 || K <= 0 || N <= 0 || P <= 0) {
-            fprintf(stderr, "Error: Matrix dimensions must be positive integers.\n");
-            exit(EXIT_FAILURE);
-        }
-    } else if (argc > 1 && argc < 5) {
-        fprintf(stderr, "Usage: %s [M K N P]\n", argv[0]);
-        fprintf(stderr, "  M: rows of matrix A\n");
-        fprintf(stderr, "  K: columns of matrix A, rows of matrix B\n");
-        fprintf(stderr, "  N: columns of matrix B\n");
-        fprintf(stderr, "  P: rows of matrix X (X has N columns)\n");
-        fprintf(stderr, "Using default values: M=%d, K=%d, N=%d, P=%d\n", M, K, N, P);
-    }
-    
-    printf("Matrix dimensions:\n");
-    printf("A: %d x %d\n", M, K);
-    printf("B: %d x %d\n", K, N);
-    printf("X: %d x %d\n", P, N);
-    printf("Y: %d x %d\n", P, M);
-    
-    // Host matrices
-    float *h_A, *h_B, *h_X, *h_Y;
-    
-    // Device matrices
-    float *d_A, *d_B, *d_X, *d_XB, *d_Y;
-    
-    // Allocate host memory
-    h_A = (float*)malloc(M * K * sizeof(float));
-    h_B = (float*)malloc(K * N * sizeof(float));
-    h_X = (float*)malloc(P * N * sizeof(float));
-    h_Y = (float*)malloc(P * M * sizeof(float));
-    
-    if (!h_A || !h_B || !h_X || !h_Y) {
-        fprintf(stderr, "Host memory allocation failed\n");
+// CUDA Error checking
+#define checkCudaErrors(val) check((val), #val, __FILE__, __LINE__)
+void check(cudaError_t result, char const *const func, const char *const file, int const line) {
+    if (result) {
+        printf("CUDA error at %s:%d code=%d(%s) \"%s\" \n", file, line,
+               static_cast<unsigned int>(result), cudaGetErrorString(result), func);
         exit(EXIT_FAILURE);
     }
-    
+}
+
+int main(int argc, char* argv[]) {
+    srand(time(NULL));
+
+    float *h_A = nullptr;
+    float *h_B = nullptr;
+    float *h_X = nullptr;
+
+    std::string A_dir = "/srv/home/tsuresh2/repo759/project/repo759-final-project/LoRA/np_ckpts_ece759/Gemma-2-2b/query/lora/Gemma-2-2b-loraA.npy";
+    std::string B_dir = "/srv/home/tsuresh2/repo759/project/repo759-final-project/LoRA/np_ckpts_ece759/Gemma-2-2b/query/lora/Gemma-2-2b-loraB.npy";
+    std::string X_dir = "/srv/home/tsuresh2/repo759/project/repo759-final-project/LoRA/np_ckpts_ece759/Gemma-2-2b/inputs/x_512.npy";
+
+    auto [A_rows, A_cols] = load_ckpt_float(A_dir, h_A);
+    auto [B_rows, B_cols] = load_ckpt_float(B_dir, h_B);
+    auto [X_rows, X_cols] = load_ckpt_float(X_dir, h_X);
+
+    size_t bytes_A = A_rows * A_cols * sizeof(float);
+    size_t bytes_B = B_rows * B_cols * sizeof(float);
+    size_t bytes_X = X_rows * X_cols * sizeof(float);
+
+    // For the intermediate result X.A
+    size_t bytes_XA = X_rows * A_cols * sizeof(float);
+
+    // For the final result (X.A).B
+    size_t bytes_Y = X_rows * B_cols * sizeof(float);
+
+    float *h_XA = (float*)malloc(bytes_XA);
+    float *h_Y = (float*)malloc(bytes_Y);
+
     // Allocate device memory
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_A, M * K * sizeof(float)));
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_B, K * N * sizeof(float)));
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_X, P * N * sizeof(float)));
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_XB, P * K * sizeof(float)));
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_Y, P * M * sizeof(float)));
-    
-    // Define thread block and grid dimensions for initialization
-    dim3 initBlockSize(256);
-    dim3 initGridSizeA((M * K + initBlockSize.x - 1) / initBlockSize.x);
-    dim3 initGridSizeB((K * N + initBlockSize.x - 1) / initBlockSize.x);
-    dim3 initGridSizeX((P * N + initBlockSize.x - 1) / initBlockSize.x);
-    
-    // Initialize matrices with random values on the device
-    initializeRandom<<<initGridSizeA, initBlockSize>>>(d_A, M * K, 12345, 0.0f, 1.0f);
-    initializeRandom<<<initGridSizeB, initBlockSize>>>(d_B, K * N, 67890, 0.0f, 1.0f);
-    initializeRandom<<<initGridSizeX, initBlockSize>>>(d_X, P * N, 54321, -1.0f, 1.0f);
-    
-    // Check for initialization errors
-    CHECK_CUDA_ERROR(cudaGetLastError());
-    CHECK_CUDA_ERROR(cudaDeviceSynchronize());
-    
-    // Define optimal thread block size based on device capabilities
-    int blockDim = 16; // Default, can be adjusted
-    
-    // Get device properties to optimize thread block size
-    cudaDeviceProp deviceProp;
-    CHECK_CUDA_ERROR(cudaGetDeviceProperties(&deviceProp, 0));
-    
-    // Can adjust blockDim based on device properties for better performance
-    if (deviceProp.maxThreadsPerBlock >= 1024) {
-        blockDim = 32; // Use larger block size on more capable hardware
-    }
-    
-    dim3 blockSize(blockDim, blockDim);
-    dim3 gridSizeXB((K + blockSize.x - 1) / blockSize.x, (P + blockSize.y - 1) / blockSize.y);
-    dim3 gridSizeY((M + blockSize.x - 1) / blockSize.x, (P + blockSize.y - 1) / blockSize.y);
-    
-    // Record start time
+    float *d_A, *d_B, *d_X, *d_XA, *d_Y;
+    checkCudaErrors(cudaMalloc(&d_A, bytes_A));
+    checkCudaErrors(cudaMalloc(&d_B, bytes_B));
+    checkCudaErrors(cudaMalloc(&d_X, bytes_X));
+    checkCudaErrors(cudaMalloc(&d_XA, bytes_XA));
+    checkCudaErrors(cudaMalloc(&d_Y, bytes_Y));
+
+    // Copy host to device
+    checkCudaErrors(cudaMemcpy(d_A, h_A, bytes_A, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_B, h_B, bytes_B, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_X, h_X, bytes_X, cudaMemcpyHostToDevice));
+    // CUDA events for timing
     cudaEvent_t start, stop;
-    CHECK_CUDA_ERROR(cudaEventCreate(&start));
-    CHECK_CUDA_ERROR(cudaEventCreate(&stop));
-    CHECK_CUDA_ERROR(cudaEventRecord(start));
-    
-    // First compute X*B (P×N * N×K = P×K)
-    matrixMul<<<gridSizeXB, blockSize>>>(d_X, d_B, d_XB, P, N, K);
-    
-    // Then compute (X*B)*A (P×K * K×M = P×M)
-    matrixMul<<<gridSizeY, blockSize>>>(d_XB, d_A, d_Y, P, K, M);
-    
-    // Record end time
-    CHECK_CUDA_ERROR(cudaEventRecord(stop));
-    CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
-    
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
     float milliseconds = 0;
-    CHECK_CUDA_ERROR(cudaEventElapsedTime(&milliseconds, start, stop));
-    
-    // Check for kernel launch errors
-    CHECK_CUDA_ERROR(cudaGetLastError());
-    
-    // Wait for GPU to finish
-    CHECK_CUDA_ERROR(cudaDeviceSynchronize());
-    
-    printf("Matrix multiplication completed in %.2f ms\n", milliseconds);
-    
-    // Copy result from device to host
-    CHECK_CUDA_ERROR(cudaMemcpy(h_Y, d_Y, P * M * sizeof(float), cudaMemcpyDeviceToHost));
-    
-    // Print some values from the result for verification
-    printf("First few values of Y (output matrix):\n");
-    int preview_size = 5;
-    for (int i = 0; i < preview_size && i < P; i++) {
-        for (int j = 0; j < preview_size && j < M; j++) {
-            printf("%f ", h_Y[i * M + j]);
-        }
-        printf("\n");
-    }
-    
-   
-    
+
+    // Define grid and block dimensions
+    dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
+
+    // For X.A computation
+    dim3 dimGrid1((A_cols + BLOCK_SIZE - 1) / BLOCK_SIZE, (X_rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    // For (X.A).B computation
+    dim3 dimGrid2((B_cols + BLOCK_SIZE - 1) / BLOCK_SIZE, (X_rows + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    printf("\nRunning Calculation: Y = (X.A).B\n");
+    printf("----------------------------------\n");
+
+    // Start total timing
+    cudaEventRecord(start);
+
+    // Step 1: XA = X.A
+    cudaEventRecord(start);
+    matrixMulKernel<<<dimGrid1, dimBlock>>>(d_X, d_A, d_XA, X_rows, X_cols, A_cols);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Time for XA = X.A: %f ms\n", milliseconds);
+    float time_XA = milliseconds;
+
+    // Step 2: Y = XA.B
+    cudaEventRecord(start);
+    matrixMulKernel<<<dimGrid2, dimBlock>>>(d_XA, d_B, d_Y, X_rows, A_cols, B_cols);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Time for Y = XA.B: %f ms\n", milliseconds);
+    float time_Y = milliseconds;
+    // End total timing
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Total time for Y = (X.A).B: %f ms\n", time_XA + time_Y);
+
+    // Copy result back to host
+    checkCudaErrors(cudaMemcpy(h_Y, d_Y, bytes_Y, cudaMemcpyDeviceToHost));
+
+    // Print first and last elements of results
+    printf("\nResults:\n");
+    printf("Y[0][0] = %f (First element)\n", h_Y[0]);
+    printf("Y[%d][%d] = %f (Last element)\n", X_rows-1, B_cols-1, h_Y[(X_rows*B_cols)-1]);
+
     // Clean up
-    CHECK_CUDA_ERROR(cudaEventDestroy(start));
-    CHECK_CUDA_ERROR(cudaEventDestroy(stop));
-    
-    // Free device memory
-    CHECK_CUDA_ERROR(cudaFree(d_A));
-    CHECK_CUDA_ERROR(cudaFree(d_B));
-    CHECK_CUDA_ERROR(cudaFree(d_X));
-    CHECK_CUDA_ERROR(cudaFree(d_XB));
-    CHECK_CUDA_ERROR(cudaFree(d_Y));
-    
-    // Free host memory
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_X);
+    cudaFree(d_XA);
+    cudaFree(d_Y);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
     free(h_A);
     free(h_B);
     free(h_X);
+    free(h_XA);
     free(h_Y);
-    
+
     return 0;
 }
