@@ -57,4 +57,3 @@ This part of the course project implements GPU-accelerated matrix operations usi
 
 - Implemented in CUDA with custom matrix multiplication kernels.
 - Uses `cnpy` for `.npy` file parsing.
-- Optimized for memory and performance on large-scale transformer models.
