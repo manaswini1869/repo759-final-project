@@ -15,6 +15,17 @@ __global__ void frame_matmul_kernel(const float* A, const float* B, float* C, si
 
 __global__ void frame_matmul_transpose_kernel(const float* A, const float* B, float* C, size_t m, size_t k, size_t n);
 
+__global__ void frame_unwrap_projs( const float* p_m,
+                                    const float* cs,
+                                    const int* locs,
+                                    const float* p_n,
+                                    float* p_m_u,
+                                    float* p_n_u,
+                                    size_t num_cs,
+                                    size_t rows,
+                                    size_t cols);
+
+
 // Makes one call to matmul_kernel with threads_per_block threads per block.
 // You can consider following the kernel call with cudaDeviceSynchronize (but if you use 
 // cudaEventSynchronize to time it, that call serves the same purpose as cudaDeviceSynchronize).
@@ -34,6 +45,22 @@ void frame_compute_y_2( const float* tff_m,
                         size_t ct_mat_cols,
                         size_t k_m, size_t k_n, size_t l_m, size_t l_n,
                         unsigned int threads_per_block);
+
+void frame_compute_y_3( const float* tff_m,
+                        const float* tff_n,
+                        const float* ct,
+                        const int* locs,
+                        float* tff_m_unfold,
+                        float* tff_n_unfold,
+                        const float* x,
+                        float* D1,
+                        float* y,
+                        size_t num_tokens,
+                        size_t ct_mat_rows,
+                        size_t ct_mat_cols,
+                        size_t ct_cols,
+                        unsigned int threads_per_block);
+
 
 
 #endif

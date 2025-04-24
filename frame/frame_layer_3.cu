@@ -32,20 +32,23 @@ int main() {
     tff_n = construct_real_tff(k_n, l_n/2, ct_mat_cols/2);
 
     // multiply tff_m * ct_mat * tff_n.T in cuda
-    float *d_tff_m, *d_tff_n, *d_ct, *d_D1, *d_D2, *d_y, *d_x;
+    float *d_tff_m, *d_tff_n, *d_ct, *d_D1, *d_y, *d_x;
+    float *d_tff_m_unfold, *d_tff_n_unfold;
     int *d_locs;
 
     // Allocate memory
     cudaMalloc(&d_tff_m, ct_mat_rows * ct_mat_rows * sizeof(float));
     cudaMalloc(&d_tff_n, ct_mat_cols * ct_mat_cols * sizeof(float));
+    cudaMalloc(&d_tff_m_unfold, ct_mat_rows * ct_cols * sizeof(float));
+    cudaMalloc(&d_tff_n_unfold, ct_cols * ct_mat_cols * sizeof(float));
+
     cudaMalloc(&d_ct, ct_cols * sizeof(float));
     cudaMalloc(&d_locs, locs_rows * locs_cols * sizeof(int));
 
     cudaMalloc(&d_y, num_tokens * ct_mat_cols * sizeof(float));
     cudaMalloc(&d_x, num_tokens * ct_mat_rows * sizeof(float));
 
-    cudaMalloc(&d_D1, num_tokens * ct_mat_rows * sizeof(float));
-    cudaMalloc(&d_D2, ct_mat_rows * ct_mat_cols * sizeof(float));
+    cudaMalloc(&d_D1, num_tokens * ct_cols * sizeof(float));
 
     // Copy data
     cudaMemcpy(d_tff_m, tff_m, ct_mat_rows * ct_mat_rows * sizeof(float), cudaMemcpyHostToDevice);
@@ -60,17 +63,19 @@ int main() {
     cudaEventCreate(&stop);
 
     cudaEventRecord(start);
-    frame_compute_y_2(  d_tff_m,
+    frame_compute_y_3(  d_tff_m,
                         d_tff_n,
-                        d_bct,
+                        d_ct,
+                        d_locs,
+                        d_tff_m_unfold,
+                        d_tff_n_unfold,
                         d_x,
                         d_D1,
-                        d_D2,
                         d_y,
                         num_tokens,
                         ct_mat_rows,
                         ct_mat_cols,
-                        k_m, k_n, l_m, l_n,
+                        ct_cols,
                         threads_per_block);
     cudaEventRecord(stop);
 
@@ -97,7 +102,6 @@ int main() {
     // save_array("/home/harsha/proj/ece759-final-proj/temp.npy", ct_mat, ct_mat_rows * ct_mat_cols);
 
     delete[] ct;
-    delete[] bct;
     delete[] locs;
     delete[] tff_m;
     delete[] tff_n;
