@@ -72,6 +72,37 @@ __global__ void frame_block_matmul_kernel(const float* b_A, const float* B, floa
     }
 }
 
+// Does unwrap of p_m.T, p_n based on cs and locs
+__global__ void frame_unwrap_projs( const float* p_m,
+                                    const float* cs,
+                                    const int* locs,
+                                    const float* p_n,
+                                    float* p_m_u,
+                                    float* p_n_u,
+                                    size_t num_cs,
+                                    size_t rows,
+                                    size_t cols)
+{
+    // Calculate the row and column index for the element to compute
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < num_cs)
+    {
+        int row = locs[idx];
+        int col = locs[num_cs + idx];
+
+        // for pm, copy the row into column to do the transpose
+        for( size_t i = 0; i < rows; ++i)
+        {
+            p_m_u[i*rows + idx] = p_m[row * rows + i];
+        }
+        for (size_t i = 0; i < cols; ++i)
+        {
+            p_n_u[idx * cols + i] = cs[idx] * p_n[col * cols + i];
+        }
+    }
+}
+
 
 void frame_compute_dw(const float* tff_m, const float* tff_n, const float* ct_mat, float* D, float* result, size_t m, size_t n, unsigned int threads_per_block)
 {
@@ -118,5 +149,41 @@ void frame_compute_y_2( const float* tff_m,
 
     size_t num_blocks_y = (num_tokens * ct_mat_cols + threads_per_block - 1) / threads_per_block;
     frame_matmul_kernel<<<num_blocks_y, threads_per_block>>>(D1, D2, y, num_tokens, ct_mat_rows, ct_mat_cols);
+
+}
+
+void frame_compute_y_3( const float* tff_m,
+                        const float* tff_n,
+                        const float* ct,
+                        const int* locs,
+                        float* tff_m_unfold,
+                        float* tff_n_unfold,
+                        const float* x,
+                        float* D1,
+                        float* y,
+                        size_t num_tokens,
+                        size_t ct_mat_rows,
+                        size_t ct_mat_cols,
+                        size_t ct_cols,
+                        unsigned int threads_per_block)
+{
+
+    // Unfold the tff_m and tff_n matrices
+    size_t num_blocks_u = (ct_cols + threads_per_block - 1) / threads_per_block;
+    frame_unwrap_projs<<<num_blocks_u, threads_per_block>>>(tff_m,
+                                                            ct,
+                                                            locs,
+                                                            tff_n,
+                                                            tff_m_unfold,
+                                                            tff_n_unfold,
+                                                            ct_cols,
+                                                            ct_mat_rows,
+                                                            ct_mat_cols);
+
+    size_t num_blocks_d1 = (num_tokens * ct_cols + threads_per_block - 1) / threads_per_block;
+    frame_matmul_kernel<<<num_blocks_d1, threads_per_block>>>(x, tff_m_unfold, D1, num_tokens, ct_mat_rows, ct_cols);
+
+    size_t num_blocks_y = (num_tokens * ct_mat_cols + threads_per_block - 1) / threads_per_block;
+    frame_matmul_kernel<<<num_blocks_y, threads_per_block>>>(D1, tff_n_unfold, y, num_tokens, ct_cols, ct_mat_cols);
 
 }

@@ -7,24 +7,28 @@
 #include <math.h>
 #include "construct_frame.h"
 
-int main() {
-    int ct_mat_rows = 2304, ct_mat_cols = 1024;
-    int k_m = 1152, l_m = 2, k_n = 512, l_n = 2;
-    int num_tokens = 16;
-    int threads_per_block = 256;
+int main(int argc, char* argv[]) {
+    int ct_mat_rows = atoi(argv[1]);  // 2304;
+    int ct_mat_cols = atoi(argv[2]);  //1024;
+    int l_m = atoi(argv[3]);  // 2;
+    int l_n = atoi(argv[4]);  // 2;
+    int k_m = ct_mat_rows / l_m;
+    int k_n = ct_mat_cols / l_n;
+    int num_tokens = atoi(argv[5]);  // 16;
+    int threads_per_block = atoi(argv[6]);  // 256;
+    std::string ct_directory = argv[7];  // "/home/harsha/proj/ece759-final-proj/checkpoints/Gemma-2-2b/value/frame/Gemma-2-2b-frame-value-CT.npy";
+    std::string locs_directory = argv[8];  // "/home/harsha/proj/ece759-final-proj/checkpoints/Gemma-2-2b/value/frame/Gemma-2-2b-frame-value-locs.npy";
+    std::string x_directory = argv[9];  // "/home/harsha/proj/ece759-final-proj/checkpoints/Gemma-2-2b/inputs/x_16.npy";
 
     // load the coefficients
-    std::string ct_directory = "/home/harsha/proj/ece759-final-proj/checkpoints/Gemma-2-2b/value/frame/Gemma-2-2b-frame-value-CT.npy";
     float* ct = nullptr; 
     auto [ct_rows, ct_cols] = load_ckpt_float(ct_directory, ct);
 
     // load the locations
-    std::string locs_directory = "/home/harsha/proj/ece759-final-proj/checkpoints/Gemma-2-2b/value/frame/Gemma-2-2b-frame-value-locs.npy";
     int* locs = nullptr; 
     auto [locs_rows, locs_cols] = load_ckpt_int(locs_directory, locs);
 
     // load the tokens
-    std::string x_directory = "/home/harsha/proj/ece759-final-proj/checkpoints/Gemma-2-2b/inputs/x_16.npy";
     float* x = nullptr; 
     auto [x_rows, x_cols] = load_ckpt_float(x_directory, x);
 
@@ -80,26 +84,20 @@ int main() {
     float milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, start, stop);
 
-    float* h_y = new float[num_tokens * ct_mat_cols];
-    float* h_D = new float[ct_mat_rows * ct_mat_cols];
-    float* h_dw = new float[ct_mat_rows * ct_mat_cols];
+    // float* h_y = new float[num_tokens * ct_mat_cols];
+    // float* h_D = new float[ct_mat_rows * ct_mat_cols];
+    // float* h_dw = new float[ct_mat_rows * ct_mat_cols];
 
-    // Copy result back to host
-    int bytes = num_tokens * ct_mat_cols * sizeof(float);
-    cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost);
-    bytes = ct_mat_rows * ct_mat_cols * sizeof(float);
-    cudaMemcpy(h_D, d_D, bytes, cudaMemcpyDeviceToHost);
-    bytes = ct_mat_rows * ct_mat_cols * sizeof(float);
-    cudaMemcpy(h_dw, d_dw, bytes, cudaMemcpyDeviceToHost);
+    // // Copy result back to host
+    // int bytes = num_tokens * ct_mat_cols * sizeof(float);
+    // cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost);
+    // bytes = ct_mat_rows * ct_mat_cols * sizeof(float);
+    // cudaMemcpy(h_D, d_D, bytes, cudaMemcpyDeviceToHost);
+    // bytes = ct_mat_rows * ct_mat_cols * sizeof(float);
+    // cudaMemcpy(h_dw, d_dw, bytes, cudaMemcpyDeviceToHost);
 
     // Print the last element
     // print first 10 values of h_y
-    for (int i = 0; i < 10; ++i) {
-        std::cout << h_y[i] << " ";
-    }
-    std::cout << h_y[num_tokens * ct_mat_cols - 1] << std::endl;
-    std::cout << h_D[ct_mat_rows * ct_mat_cols - 1] << std::endl;
-    std::cout << h_dw[ct_mat_rows * ct_mat_cols - 1] << std::endl;
     std::cout << milliseconds << std::endl;
 
     // for DEBUG
@@ -113,9 +111,9 @@ int main() {
     delete[] ct_mat;
     delete[] tff_m;
     delete[] tff_n;
-    delete[] h_y;
-    delete[] h_D;
-    delete[] h_dw;
+    // delete[] h_y;
+    // delete[] h_D;
+    // delete[] h_dw;
     cudaFree(d_tff_m);
     cudaFree(d_tff_n);
     cudaFree(d_ct_mat);

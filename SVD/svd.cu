@@ -88,12 +88,13 @@ __global__ void compute_final_matrix_sum_from_rows(const float* u,       // M x 
 // --- Host Code ---
 int main(int argc, char **argv) {
 
-    if (argc != 5) {
-        fprintf(stderr, "Usage: %s <M> <Nu> <Nv> <P>\n", argv[0]);
+    if (argc != 6) {
+        fprintf(stderr, "Usage: %s <M> <Nu> <Nv> <P> <B>\n", argv[0]);
         fprintf(stderr, "  M:  Number of terms in sum\n");
         fprintf(stderr, "  Nu: Dimension of u vectors\n");
         fprintf(stderr, "  Nv: Dimension of v vectors (rows of X)\n");
         fprintf(stderr, "  P:  Columns of X\n");
+        fprintf(stderr, "  B:  Block size\n");
         return 1;
     }
 
@@ -102,6 +103,7 @@ int main(int argc, char **argv) {
     int Nu = atoi(argv[2]);
     int Nv = atoi(argv[3]);
     int P = atoi(argv[4]);
+    int B = atoi(argv[5]);
 
     if (M <= 0 || Nu <= 0 || Nv <= 0 || P <= 0) {
         fprintf(stderr, "Error: All dimensions must be positive integers.\n");
@@ -157,8 +159,8 @@ int main(int argc, char **argv) {
     float time_ms;
 
     // --- Kernel Launch Configuration ---
-    const int BLOCK_DIM_X = 16;
-    const int BLOCK_DIM_Y = 16;
+    const int BLOCK_DIM_X = B;
+    const int BLOCK_DIM_Y = B;
     dim3 blockDim(BLOCK_DIM_X, BLOCK_DIM_Y);
 
     // --- Implementation 1: (sum_i sigma_i u_i v_i^T) * X ---
