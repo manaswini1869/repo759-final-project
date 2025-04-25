@@ -29,32 +29,34 @@ __global__ void batched_matvec_kernel(const float* mat, const float* vecs, float
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2 || argc > 3) {
-        std::cerr << "Usage: " << argv[0] << " /input/input_x.npy [threads_per_block]\n";
+    if (argc != 6) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <input_x.npy> <threads_per_block> <input_copy.npy> <ct_ckpt.npy> <locs_ckpt.npy>\n";
         return 1;
     }
 
     std::string xfile = argv[1];
-    int block_size = 256;
-    if (argc == 3) {
-        block_size = std::stoi(argv[2]);
-        if (block_size <= 0 || block_size > 1024) {
-            std::cerr << "Invalid block size. Must be between 1 and 1024.\n";
-            return 1;
-        }
+    int block_size = std::stoi(argv[2]);
+    if (block_size <= 0 || block_size > 1024) {
+        std::cerr << "Invalid block size. Must be between 1 and 1024.\n";
+        return 1;
     }
+
+    std::string ct_directory = argv[4];
+    std::string locs_directory = argv[5];
 
     int ct_mat_rows = 2304, ct_mat_cols = 1024;
     size_t mat_size = ct_mat_rows * ct_mat_cols;
-    // step 1: creating the sparse vector
-    std::string ct_directory = "./fourier-checkpoints/gemma-2-2b-fourier-CT.npy";
+
+    // Load CT checkpoint
     float* ct_host = nullptr;
     auto [ct_rows, ct_cols] = load_ckpt_float(ct_directory, ct_host);
 
-    std::string locs_directory = "./fourier-checkpoints/gemma-2-2b-fourier-locs.npy";
+    // Load locs checkpoint
     int* locs_host = nullptr;
     auto [locs_rows, locs_cols] = load_ckpt_int(locs_directory, locs_host);
 
+    // Allocate and zero-initialize frequency domain buffer
     cufftComplex* freq_domain;
     cudaMalloc(&freq_domain, mat_size * sizeof(cufftComplex));
     cudaMemset(freq_domain, 0, mat_size * sizeof(cufftComplex));
@@ -76,24 +78,6 @@ int main(int argc, char** argv) {
         std::cerr << "cuFFT plan creation failed with error code: " << result << "\n";
         return 1;
     }
-
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start);
-
-    result = cufftExecC2C(plan, freq_domain, time_domain, CUFFT_INVERSE);
-    if (result != CUFFT_SUCCESS) {
-        std::cerr << "cuFFT execution failed with error code: " << result << "\n";
-        return 1;
-    }
-
-    float* real_part;
-    cudaMalloc(&real_part, mat_size * sizeof(float));
-    int blocks = (mat_size + block_size - 1) / block_size;
-    float norm_factor = 1.0f / static_cast<float>(mat_size);
-    extract_real_normalized<<<blocks, block_size>>>(real_part, time_domain, mat_size, norm_factor);
-    cudaDeviceSynchronize();
 
     cnpy::NpyArray x_np = cnpy::npy_load(xfile);
     size_t B = x_np.shape[0];
@@ -118,6 +102,26 @@ int main(int argc, char** argv) {
 
     float* d_Y;
     cudaMalloc(&d_Y, B * ct_mat_cols * sizeof(float));
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    result = cufftExecC2C(plan, freq_domain, time_domain, CUFFT_INVERSE);
+    if (result != CUFFT_SUCCESS) {
+        std::cerr << "cuFFT execution failed with error code: " << result << "\n";
+        return 1;
+    }
+
+    float* real_part;
+    cudaMalloc(&real_part, mat_size * sizeof(float));
+    int blocks = (mat_size + block_size - 1) / block_size;
+    float norm_factor = 1.0f / static_cast<float>(mat_size);
+    extract_real_normalized<<<blocks, block_size>>>(real_part, time_domain, mat_size, norm_factor);
+    cudaDeviceSynchronize();
+
+    // Load input vector
 
     dim3 vecBlock(block_size);
     dim3 vecGrid((ct_mat_cols + block_size - 1) / block_size, B);

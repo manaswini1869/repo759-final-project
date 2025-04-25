@@ -18,50 +18,8 @@
 
 module load nvidia/cuda/11.8.0
 nvcc -std=c++17 fourier.cu ./cnpy/cnpy.cpp ./utils/load_ckpt.cpp -I./utils/ -I./cnpy -lcufft -lz -o fourier
-./fourier ./inputs/x_1.npy 1
-./fourier ./inputs/x_1.npy 2
-./fourier ./inputs/x_1.npy 4
-./fourier ./inputs/x_1.npy 8
-./fourier ./inputs/x_1.npy 16
-./fourier ./inputs/x_1.npy 72
-./fourier ./inputs/x_1.npy 256
-./fourier ./inputs/x_1.npy 1024
-
-
-./fourier ./inputs/x_16.npy 1
-./fourier ./inputs/x_16.npy 2
-./fourier ./inputs/x_16.npy 4
-./fourier ./inputs/x_16.npy 8
-./fourier ./inputs/x_16.npy 16
-./fourier ./inputs/x_16.npy 72
-./fourier ./inputs/x_16.npy 256
-./fourier ./inputs/x_16.npy 1024
-
-./fourier ./inputs/x_128.npy 1
-./fourier ./inputs/x_128.npy 2
-./fourier ./inputs/x_128.npy 4
-./fourier ./inputs/x_128.npy 8
-./fourier ./inputs/x_128.npy 16
-./fourier ./inputs/x_128.npy 72
-./fourier ./inputs/x_128.npy 256
-./fourier ./inputs/x_128.npy 1024
-
-./fourier ./inputs/x_512.npy 1
-./fourier ./inputs/x_512.npy 2
-./fourier ./inputs/x_512.npy 4
-./fourier ./inputs/x_512.npy 8
-./fourier ./inputs/x_512.npy 16
-./fourier ./inputs/x_512.npy 72
-./fourier ./inputs/x_512.npy 256
-./fourier ./inputs/x_512.npy 1024
-
-./fourier ./inputs/x_1024.npy 1
-./fourier ./inputs/x_1024.npy 2
-./fourier ./inputs/x_1024.npy 4
-./fourier ./inputs/x_1024.npy 8
-./fourier ./inputs/x_1024.npy 16
-./fourier ./inputs/x_1024.npy 72
-./fourier ./inputs/x_1024.npy 256
-./fourier ./inputs/x_1024.npy 1024
-# Add -I/path/to/load_ckpt/header if load_ckpt.cuh is not in the same dir
+./fourier ./Llama-2-7b/inputs/x_1024.npy 32 ./Gemma-2-2b/inputs/x_1024.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-CT.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-locs.npy
+./fourier ./Llama-2-7b/inputs/x_1024.npy 128 ./Gemma-2-2b/inputs/x_1024.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-CT.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-locs.npy
+./fourier ./Llama-2-7b/inputs/x_1024.npy 512 ./Gemma-2-2b/inputs/x_1024.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-CT.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-locs.npy
+./fourier ./Llama-2-7b/inputs/x_1024.npy 1024 ./Gemma-2-2b/inputs/x_1024.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-CT.npy ./Llama-2-7b/query/fourier/Llama-2-7b-fourier-query-locs.npy
 
